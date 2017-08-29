@@ -31,7 +31,6 @@ namespace MoonSharp.Interpreter
 			this.DoNotDecorateMessage = true;
 		}
 
-
 		/// <summary>
 		/// Initializes a new instance of the <see cref="ScriptRuntimeException"/> class.
 		/// </summary>
@@ -252,7 +251,6 @@ namespace MoonSharp.Interpreter
 			return new ScriptRuntimeException("bad argument #{0} to '{1}' (value expected)",
 				argNum + 1, funcName);
 		}
-
 
 		/// <summary>
 		/// Creates a ScriptRuntimeException with a predefined error message specifying that
