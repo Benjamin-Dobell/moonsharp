@@ -141,7 +141,12 @@ namespace MoonSharp.Interpreter.Interop.Converters
 						return NumericConversions.DoubleToType(underType, value.Number);
 					}
 					if (NumericConversions.NumericTypes.Contains(desiredType))
-						return NumericConversions.DoubleToType(desiredType, value.Number);
+					{
+						object d = NumericConversions.DoubleToType(desiredType, value.Number);
+						if (d.GetType() == desiredType)
+							return d;
+						break;
+					}
 					if (stringSubType != StringConversions.StringSubtype.None)
 						str = value.Number.ToString();
 					break;
@@ -211,7 +216,7 @@ namespace MoonSharp.Interpreter.Interop.Converters
 				return WEIGHT_EXACT_MATCH;
 
 			StringConversions.StringSubtype stringSubType = StringConversions.GetStringSubtype(desiredType);
-			
+
 			Type nt = Nullable.GetUnderlyingType(desiredType);
 			Type nullableType = null;
 
