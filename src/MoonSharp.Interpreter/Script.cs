@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -332,7 +332,6 @@ namespace MoonSharp.Interpreter
 			DynValue func = LoadString(code, globalContext, codeFriendlyName);
 			return Call(func);
 		}
-
 
 		/// <summary>
 		/// Loads and executes a stream containing a Lua/MoonSharp script.
