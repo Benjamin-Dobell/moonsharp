@@ -29,6 +29,7 @@ jobs:
             MINOR="${BASH_REMATCH[2]}"
             PATCH="${BASH_REMATCH[3]}"
             VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+            PACKAGE_VERSION="${MAJOR}.${MINOR}.${PATCH}"
             BRANCH_PREFIX="upm"
             RELEASE_NAME="${VERSION}"
             RELEASE_PRERELEASE="false"
@@ -38,6 +39,7 @@ jobs:
             PATCH="${BASH_REMATCH[3]}"
             BETA_NUMBER="${BASH_REMATCH[4]}"
             VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+            PACKAGE_VERSION="${MAJOR}.${MINOR}.${PATCH}-beta.${BETA_NUMBER}"
             BRANCH_PREFIX="upm/beta"
             RELEASE_NAME="${VERSION} Beta #${BETA_NUMBER}"
             RELEASE_PRERELEASE="true"
@@ -46,6 +48,7 @@ jobs:
             MINOR="${BASH_REMATCH[2]}"
             PATCH="${BASH_REMATCH[3]}"
             VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+            PACKAGE_VERSION="${MAJOR}.${MINOR}.${PATCH}-beta"
             BRANCH_PREFIX="upm/beta"
             RELEASE_NAME="${VERSION} Beta"
             RELEASE_PRERELEASE="true"
@@ -60,6 +63,7 @@ jobs:
           echo "MAJOR=${MAJOR}" >> "${GITHUB_ENV}"
           echo "MINOR=${MINOR}" >> "${GITHUB_ENV}"
           echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
+          echo "PACKAGE_VERSION=${PACKAGE_VERSION}" >> "${GITHUB_ENV}"
           echo "BRANCH_PREFIX=${BRANCH_PREFIX}" >> "${GITHUB_ENV}"
           echo "RELEASE_NAME=${RELEASE_NAME}" >> "${GITHUB_ENV}"
           echo "RELEASE_PRERELEASE=${RELEASE_PRERELEASE}" >> "${GITHUB_ENV}"
@@ -104,7 +108,25 @@ jobs:
             exit 1
           fi
 
-          echo "TARBALL_PATH=${TARBALL}" >> "${GITHUB_ENV}"
+          mkdir -p /tmp/upm-artifact/repack
+          tar -xzf "${TARBALL}" -C /tmp/upm-artifact/repack
+          PACKAGE_JSON="/tmp/upm-artifact/repack/package/package.json"
+          if [ ! -f "${PACKAGE_JSON}" ]; then
+            echo "Invalid package tarball: package/package.json not found."
+            exit 1
+          fi
+
+          sed -E "s/\"version\"[[:space:]]*:[[:space:]]*\"[^\"]+\"/\"version\": \"${PACKAGE_VERSION}\"/" \
+            "${PACKAGE_JSON}" > "${PACKAGE_JSON}.tmp"
+          mv "${PACKAGE_JSON}.tmp" "${PACKAGE_JSON}"
+
+          REPACK_TARBALL="/tmp/upm-artifact/org.moonsharp.moonsharp-${PACKAGE_VERSION}.tgz"
+          (
+            cd /tmp/upm-artifact/repack
+            tar -czf "${REPACK_TARBALL}" package
+          )
+
+          echo "TARBALL_PATH=${REPACK_TARBALL}" >> "${GITHUB_ENV}"
 
       - name: Publish package to version branches
         run: |
