@@ -33,6 +33,32 @@ For highlights on differences between MoonSharp and standard Lua, see http://www
 
 Please see http://www.moonsharp.org for downloads, infos, tutorials, etc.
 
+## Unity Package (UPM)
+
+### Build package locally
+
+```bash
+tools/upm/stage-local-package.sh 3.0.0-local
+cd .upm-staging/org.moonsharp.moonsharp
+npm pack
+```
+
+This produces a tarball like:
+
+`org.moonsharp.moonsharp-3.0.0-local.tgz`
+
+### Install in Unity
+
+Install from version branch
+1. In your Unity project's `Packages/manifest.json`, add:
+   `"org.moonsharp.moonsharp": "https://github.com/Benjamin-Dobell/moonsharp.git#upm/v3"`
+2. For minor-track pinning, use branches like:
+   `upm/v3.2`
+
+Release automation publishes package-only branches:
+- `upm/v<major>` (for example `upm/v3`)
+- `upm/v<major>.<minor>` (for example `upm/v3.0`)
+
 
 **License**
 
@@ -67,9 +93,6 @@ double MoonSharpFactorial()
 ```
 
 For more in-depth tutorials, samples, etc. please refer to http://www.moonsharp.org/getting_started.html
-
-
-
 
 
 

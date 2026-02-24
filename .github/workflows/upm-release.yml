@@ -1,0 +1,179 @@
+name: UPM Release
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "beta/v*"
+
+jobs:
+  publish-upm-branches:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Parse tag and resolve target metadata
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          TAG_SHA="${GITHUB_SHA}"
+
+          if [[ "${TAG}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            MAJOR="${BASH_REMATCH[1]}"
+            MINOR="${BASH_REMATCH[2]}"
+            PATCH="${BASH_REMATCH[3]}"
+            VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+            BRANCH_PREFIX="upm"
+            RELEASE_NAME="${VERSION}"
+            RELEASE_PRERELEASE="false"
+          elif [[ "${TAG}" =~ ^beta/v([0-9]+)\.([0-9]+)\.([0-9]+)-([0-9]+)$ ]]; then
+            MAJOR="${BASH_REMATCH[1]}"
+            MINOR="${BASH_REMATCH[2]}"
+            PATCH="${BASH_REMATCH[3]}"
+            BETA_NUMBER="${BASH_REMATCH[4]}"
+            VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+            BRANCH_PREFIX="upm/beta"
+            RELEASE_NAME="${VERSION} Beta #${BETA_NUMBER}"
+            RELEASE_PRERELEASE="true"
+          elif [[ "${TAG}" =~ ^beta/v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            MAJOR="${BASH_REMATCH[1]}"
+            MINOR="${BASH_REMATCH[2]}"
+            PATCH="${BASH_REMATCH[3]}"
+            VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+            BRANCH_PREFIX="upm/beta"
+            RELEASE_NAME="${VERSION} Beta"
+            RELEASE_PRERELEASE="true"
+          else
+            echo "Unsupported tag format: ${TAG}"
+            echo "Expected: vX.X.X or beta/vX.X.X or beta/vX.X.X-Y"
+            exit 1
+          fi
+
+          echo "TAG=${TAG}" >> "${GITHUB_ENV}"
+          echo "TAG_SHA=${TAG_SHA}" >> "${GITHUB_ENV}"
+          echo "MAJOR=${MAJOR}" >> "${GITHUB_ENV}"
+          echo "MINOR=${MINOR}" >> "${GITHUB_ENV}"
+          echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
+          echo "BRANCH_PREFIX=${BRANCH_PREFIX}" >> "${GITHUB_ENV}"
+          echo "RELEASE_NAME=${RELEASE_NAME}" >> "${GITHUB_ENV}"
+          echo "RELEASE_PRERELEASE=${RELEASE_PRERELEASE}" >> "${GITHUB_ENV}"
+
+      - name: Download CI UPM artifact for tag commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ARTIFACT_NAME="unity-package-tgz"
+          ARTIFACT_ID=""
+          RUN_ID=""
+
+          while IFS= read -r CANDIDATE_RUN_ID; do
+            [ -z "${CANDIDATE_RUN_ID}" ] && continue
+            [[ "${CANDIDATE_RUN_ID}" =~ ^[0-9]+$ ]] || continue
+            CANDIDATE_ARTIFACT_ID="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${CANDIDATE_RUN_ID}/artifacts" \
+              --jq ".artifacts[] | select(.name == \"${ARTIFACT_NAME}\" and .expired == false) | .id" | head -n1 || true)"
+            if [ -n "${CANDIDATE_ARTIFACT_ID}" ]; then
+              RUN_ID="${CANDIDATE_RUN_ID}"
+              ARTIFACT_ID="${CANDIDATE_ARTIFACT_ID}"
+              break
+            fi
+          done < <(gh run list \
+            --workflow ci.yml \
+            --json databaseId,headSha,conclusion \
+            --limit 200 \
+            --jq ".[] | select(.headSha == \"${TAG_SHA}\" and .conclusion == \"success\") | .databaseId")
+
+          if [ -z "${RUN_ID}" ] || [ -z "${ARTIFACT_ID}" ]; then
+            echo "No successful workflow run with artifact ${ARTIFACT_NAME} found for commit ${TAG_SHA}."
+            exit 1
+          fi
+
+          mkdir -p /tmp/upm-artifact
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > /tmp/upm-artifact/artifact.zip
+          unzip -j /tmp/upm-artifact/artifact.zip -d /tmp/upm-artifact
+
+          TARBALL="$(find /tmp/upm-artifact -maxdepth 1 -name '*.tgz' | head -n1)"
+          if [ -z "${TARBALL}" ]; then
+            echo "Downloaded artifact does not contain a .tgz package."
+            exit 1
+          fi
+
+          echo "TARBALL_PATH=${TARBALL}" >> "${GITHUB_ENV}"
+
+      - name: Publish package to version branches
+        run: |
+          set -euo pipefail
+
+          BRANCH_MAJOR="${BRANCH_PREFIX}/v${MAJOR}"
+          BRANCH_MINOR="${BRANCH_PREFIX}/v${MAJOR}.${MINOR}"
+
+          TMP_DIR="$(mktemp -d)"
+          tar -xzf "${TARBALL_PATH}" -C "${TMP_DIR}"
+          PACKAGE_DIR="${TMP_DIR}/package"
+          if [ ! -f "${PACKAGE_DIR}/package.json" ]; then
+            echo "Invalid package tarball: package.json missing in package/."
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin
+
+          publish_branch() {
+            local branch="$1"
+
+            if git ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
+              git checkout -B "${branch}" "origin/${branch}"
+            else
+              git checkout --orphan "${branch}"
+            fi
+
+            git rm -rf --ignore-unmatch . || true
+            git clean -fdx
+
+            rsync -a "${PACKAGE_DIR}/" ./
+            git add -A
+
+            if git diff --cached --quiet; then
+              echo "No changes for ${branch}; skipping commit."
+            else
+              git commit -m "UPM ${TAG}"
+              git push origin "${branch}"
+            fi
+          }
+
+          publish_branch "${BRANCH_MAJOR}"
+          publish_branch "${BRANCH_MINOR}"
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            RELEASE_ID="$(gh release view "${TAG}" --json databaseId --jq '.databaseId')"
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+              -f name="${RELEASE_NAME}" \
+              -F prerelease="${RELEASE_PRERELEASE}" >/dev/null
+            gh release upload "${TAG}" "${TARBALL_PATH}" --clobber
+          else
+            if [ "${RELEASE_PRERELEASE}" = "true" ]; then
+              gh release create "${TAG}" "${TARBALL_PATH}" \
+                --target "${TAG_SHA}" \
+                --title "${RELEASE_NAME}" \
+                --notes "Automated UPM release for ${TAG}." \
+                --prerelease
+            else
+              gh release create "${TAG}" "${TARBALL_PATH}" \
+                --target "${TAG_SHA}" \
+                --title "${RELEASE_NAME}" \
+                --notes "Automated UPM release for ${TAG}."
+            fi
+          fi
