@@ -2,5 +2,6 @@
 **/bin/
 **/obj/
 **/packages/
+!src/packages/
+!src/packages/**
 src/Unity/
-

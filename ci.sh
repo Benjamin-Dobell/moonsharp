@@ -2,9 +2,11 @@
 
 set -e
 
+export DOTNET_ROLL_FORWARD=Major
+
 # Build
-msbuild /t:Restore src/moonsharp_ci.sln
-msbuild /p:Configuration=Release src/moonsharp_ci.sln
+dotnet build -c Release src/TestRunners/ConsoleTestRunner/ConsoleTestRunner.csproj
+dotnet build -c Release src/TestRunners/DotNetCoreTestRunner/DotNetCoreTestRunner.csproj
 
 # Mono Tests
 cd src/TestRunners/ConsoleTestRunner/bin/Release/net35
@@ -19,4 +21,3 @@ mono ConsoleTestRunner.exe
 # .NET Core Tests
 cd ../../../../DotNetCoreTestRunner/bin/Release/netcoreapp2.0
 dotnet DotNetCoreTestRunner.dll /unit
-

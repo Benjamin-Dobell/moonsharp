@@ -1,4 +1,4 @@
-MoonSharp       [![Build Status](https://travis-ci.org/xanathar/moonsharp.svg?branch=master)](https://travis-ci.org/xanathar/moonsharp) [![Build Status](https://img.shields.io/nuget/v/MoonSharp.svg)](https://www.nuget.org/packages/MoonSharp/)
+MoonSharp       [![CI](https://github.com/Benjamin-Dobell/moonsharp/actions/workflows/ci.yml/badge.svg)](https://github.com/Benjamin-Dobell/moonsharp/actions/workflows/ci.yml) [![Build Status](https://img.shields.io/nuget/v/MoonSharp.svg)](https://www.nuget.org/packages/MoonSharp/)
 =========
 http://www.moonsharp.org   
 
@@ -67,7 +67,6 @@ double MoonSharpFactorial()
 ```
 
 For more in-depth tutorials, samples, etc. please refer to http://www.moonsharp.org/getting_started.html
-
 
 
 

@@ -1,15 +1,28 @@
-FROM mono:5.18.1.28
+FROM ubuntu:24.04
 
 # .NET Core
 
+ENV DEBIAN_FRONTEND=noninteractive
+
 RUN apt-get update \
-  && apt-get install -y apt-transport-https gnupg wget \
-  && wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > microsoft.asc.gpg \
-  && mv microsoft.asc.gpg /etc/apt/trusted.gpg.d/ \
-  && wget -q https://packages.microsoft.com/config/debian/9/prod.list \
-  && mv prod.list /etc/apt/sources.list.d/microsoft-prod.list \
+  && apt-get install -y --no-install-recommends ca-certificates gnupg wget \
+  && wget -q https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb \
+  && dpkg -i /tmp/packages-microsoft-prod.deb \
+  && rm -f /tmp/packages-microsoft-prod.deb \
   && apt-get update \
-  && apt-get install -y dotnet-sdk-2.2
+  && apt-get install -y --no-install-recommends dotnet-sdk-8.0 \
+  && rm -rf /var/lib/apt/lists/*
+
+# Unity Mono
+
+ARG UNITY_MONO_URL=https://github.com/Benjamin-Dobell/unity-mono/releases/download/2026-02-24.3/unity-mono-linux-2026-02-24.3.tar.gz
+ARG UNITY_MONO_SHA256=3cecef994c10eb4eeae95fd34052decac4d62bb45b241e83b0ae1bc0e3ca0008
+
+ADD ${UNITY_MONO_URL} /tmp/unity-mono.tar.gz
+
+RUN echo "${UNITY_MONO_SHA256}  /tmp/unity-mono.tar.gz" | sha256sum -c - \
+  && tar --keep-directory-symlink -xzf /tmp/unity-mono.tar.gz -C / \
+  && rm -f /tmp/unity-mono.tar.gz
 
 # MoonSharp
 
@@ -22,7 +35,7 @@ COPY src/MoonSharp.RemoteDebugger src/MoonSharp.RemoteDebugger/
 COPY src/MoonSharp.VsCodeDebugger src/MoonSharp.VsCodeDebugger/
 COPY src/TestRunners/ConsoleTestRunner src/TestRunners/ConsoleTestRunner/
 COPY src/TestRunners/DotNetCoreTestRunner src/TestRunners/DotNetCoreTestRunner/
+COPY src/packages src/packages/
 COPY src/moonsharp_ci.sln src/moonsharp_ci.sln
 
 ENTRYPOINT ["sh", "/build/ci.sh"]
-

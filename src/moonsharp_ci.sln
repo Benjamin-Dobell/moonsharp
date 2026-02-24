@@ -5,7 +5,6 @@ VisualStudioVersion = 12.0.30723.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "root", "root", "{CE0C6D33-ABF0-4CFB-B3FB-0F10A6095F25}"
 	ProjectSection(SolutionItems) = preProject
-		..\.travis.yml = ..\.travis.yml
 		..\README.md = ..\README.md
 	EndProjectSection
 EndProject
