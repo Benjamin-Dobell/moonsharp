@@ -112,8 +112,7 @@ namespace DotNetCoreTestRunner
 
 				if (unitRegex.IsMatch(args[0]))
 				{
-					TestMain(args);
-					return 0;
+					return TestMain(args);
 				}
 
 				Regex debuggerRegex = new Regex(@"^(--?|/)unit$", RegexOptions.IgnoreCase);
