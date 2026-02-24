@@ -1,0 +1,11 @@
+{
+  "name": "org.moonsharp.moonsharp",
+  "version": "0.0.0-ci.9",
+  "displayName": "MoonSharp",
+  "description": "A Lua interpreter for Unity and .NET.",
+  "unity": "2020.3",
+  "author": {
+    "name": "MoonSharp Contributors"
+  },
+  "license": "MIT"
+}
