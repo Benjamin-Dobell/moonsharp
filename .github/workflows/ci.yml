@@ -41,8 +41,19 @@ jobs:
           cd .upm-staging/org.moonsharp.moonsharp
           npm pack
 
+      - name: Pack VSCode debugger UPM tarball
+        run: |
+          cd .upm-staging/org.moonsharp.debugger.vscode
+          npm pack
+
       - name: Upload UPM tarball artifact
         uses: actions/upload-artifact@v4
         with:
           name: unity-package-tgz
           path: .upm-staging/org.moonsharp.moonsharp/*.tgz
+
+      - name: Upload VSCode debugger UPM tarball artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-package-vscode-debugger-tgz
+          path: .upm-staging/org.moonsharp.debugger.vscode/*.tgz
