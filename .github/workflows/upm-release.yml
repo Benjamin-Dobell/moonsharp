@@ -73,18 +73,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          ARTIFACT_NAME="unity-package-tgz"
-          ARTIFACT_ID=""
+          CORE_ARTIFACT_NAME="unity-package-tgz"
+          DEBUG_ARTIFACT_NAME="unity-package-vscode-debugger-tgz"
+          CORE_ARTIFACT_ID=""
+          DEBUG_ARTIFACT_ID=""
           RUN_ID=""
 
           while IFS= read -r CANDIDATE_RUN_ID; do
             [ -z "${CANDIDATE_RUN_ID}" ] && continue
             [[ "${CANDIDATE_RUN_ID}" =~ ^[0-9]+$ ]] || continue
-            CANDIDATE_ARTIFACT_ID="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${CANDIDATE_RUN_ID}/artifacts" \
-              --jq ".artifacts[] | select(.name == \"${ARTIFACT_NAME}\" and .expired == false) | .id" | head -n1 || true)"
-            if [ -n "${CANDIDATE_ARTIFACT_ID}" ]; then
+            CANDIDATE_CORE_ARTIFACT_ID="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${CANDIDATE_RUN_ID}/artifacts" \
+              --jq ".artifacts[] | select(.name == \"${CORE_ARTIFACT_NAME}\" and .expired == false) | .id" | head -n1 || true)"
+            CANDIDATE_DEBUG_ARTIFACT_ID="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${CANDIDATE_RUN_ID}/artifacts" \
+              --jq ".artifacts[] | select(.name == \"${DEBUG_ARTIFACT_NAME}\" and .expired == false) | .id" | head -n1 || true)"
+            if [ -n "${CANDIDATE_CORE_ARTIFACT_ID}" ] && [ -n "${CANDIDATE_DEBUG_ARTIFACT_ID}" ]; then
               RUN_ID="${CANDIDATE_RUN_ID}"
-              ARTIFACT_ID="${CANDIDATE_ARTIFACT_ID}"
+              CORE_ARTIFACT_ID="${CANDIDATE_CORE_ARTIFACT_ID}"
+              DEBUG_ARTIFACT_ID="${CANDIDATE_DEBUG_ARTIFACT_ID}"
               break
             fi
           done < <(gh run list \
@@ -93,53 +98,81 @@ jobs:
             --limit 200 \
             --jq ".[] | select(.headSha == \"${TAG_SHA}\" and .conclusion == \"success\") | .databaseId")
 
-          if [ -z "${RUN_ID}" ] || [ -z "${ARTIFACT_ID}" ]; then
-            echo "No successful workflow run with artifact ${ARTIFACT_NAME} found for commit ${TAG_SHA}."
+          if [ -z "${RUN_ID}" ] || [ -z "${CORE_ARTIFACT_ID}" ] || [ -z "${DEBUG_ARTIFACT_ID}" ]; then
+            echo "No successful workflow run with both UPM artifacts found for commit ${TAG_SHA}."
             exit 1
           fi
 
-          mkdir -p /tmp/upm-artifact
-          gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > /tmp/upm-artifact/artifact.zip
-          unzip -j /tmp/upm-artifact/artifact.zip -d /tmp/upm-artifact
+          ARTIFACT_TMP="/tmp/upm-artifact"
+          rm -rf "${ARTIFACT_TMP}"
+          mkdir -p "${ARTIFACT_TMP}"
 
-          TARBALL="$(find /tmp/upm-artifact -maxdepth 1 -name '*.tgz' | head -n1)"
-          if [ -z "${TARBALL}" ]; then
-            echo "Downloaded artifact does not contain a .tgz package."
+          download_artifact_tgz() {
+            local artifact_id="$1"
+            local out_dir="$2"
+            mkdir -p "${out_dir}"
+            gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > "${out_dir}/artifact.zip"
+            unzip -q -j "${out_dir}/artifact.zip" -d "${out_dir}" >/dev/null
+            find "${out_dir}" -maxdepth 1 -name '*.tgz' | head -n1
+          }
+
+          repack_with_release_version() {
+            local in_tarball="$1"
+            local out_tarball="$2"
+            local repack_dir="$3"
+            rm -rf "${repack_dir}"
+            mkdir -p "${repack_dir}"
+            tar -xzf "${in_tarball}" -C "${repack_dir}"
+            local package_json="${repack_dir}/package/package.json"
+            if [ ! -f "${package_json}" ]; then
+              echo "Invalid package tarball: package/package.json not found."
+              exit 1
+            fi
+            sed -E "s/\"version\"[[:space:]]*:[[:space:]]*\"[^\"]+\"/\"version\": \"${PACKAGE_VERSION}\"/" \
+              "${package_json}" > "${package_json}.tmp"
+            mv "${package_json}.tmp" "${package_json}"
+            (
+              cd "${repack_dir}"
+              tar -czf "${out_tarball}" package
+            )
+          }
+
+          CORE_TARBALL="$(download_artifact_tgz "${CORE_ARTIFACT_ID}" "${ARTIFACT_TMP}/core")"
+          DEBUG_TARBALL="$(download_artifact_tgz "${DEBUG_ARTIFACT_ID}" "${ARTIFACT_TMP}/debug")"
+
+          if [ -z "${CORE_TARBALL}" ] || [ -z "${DEBUG_TARBALL}" ]; then
+            echo "Downloaded artifacts do not contain expected .tgz packages."
             exit 1
           fi
 
-          mkdir -p /tmp/upm-artifact/repack
-          tar -xzf "${TARBALL}" -C /tmp/upm-artifact/repack
-          PACKAGE_JSON="/tmp/upm-artifact/repack/package/package.json"
-          if [ ! -f "${PACKAGE_JSON}" ]; then
-            echo "Invalid package tarball: package/package.json not found."
-            exit 1
-          fi
+          CORE_REPACK_TARBALL="${ARTIFACT_TMP}/org.moonsharp.moonsharp-${PACKAGE_VERSION}.tgz"
+          DEBUG_REPACK_TARBALL="${ARTIFACT_TMP}/org.moonsharp.debugger.vscode-${PACKAGE_VERSION}.tgz"
 
-          sed -E "s/\"version\"[[:space:]]*:[[:space:]]*\"[^\"]+\"/\"version\": \"${PACKAGE_VERSION}\"/" \
-            "${PACKAGE_JSON}" > "${PACKAGE_JSON}.tmp"
-          mv "${PACKAGE_JSON}.tmp" "${PACKAGE_JSON}"
+          repack_with_release_version "${CORE_TARBALL}" "${CORE_REPACK_TARBALL}" "${ARTIFACT_TMP}/core-repack"
+          repack_with_release_version "${DEBUG_TARBALL}" "${DEBUG_REPACK_TARBALL}" "${ARTIFACT_TMP}/debug-repack"
 
-          REPACK_TARBALL="/tmp/upm-artifact/org.moonsharp.moonsharp-${PACKAGE_VERSION}.tgz"
-          (
-            cd /tmp/upm-artifact/repack
-            tar -czf "${REPACK_TARBALL}" package
-          )
-
-          echo "TARBALL_PATH=${REPACK_TARBALL}" >> "${GITHUB_ENV}"
+          echo "CORE_TARBALL_PATH=${CORE_REPACK_TARBALL}" >> "${GITHUB_ENV}"
+          echo "DEBUG_TARBALL_PATH=${DEBUG_REPACK_TARBALL}" >> "${GITHUB_ENV}"
 
       - name: Publish package to version branches
         run: |
           set -euo pipefail
 
-          BRANCH_MAJOR="${BRANCH_PREFIX}/v${MAJOR}"
-          BRANCH_MINOR="${BRANCH_PREFIX}/v${MAJOR}.${MINOR}"
+          CORE_TMP_DIR="$(mktemp -d)"
+          DEBUG_TMP_DIR="$(mktemp -d)"
+          tar -xzf "${CORE_TARBALL_PATH}" -C "${CORE_TMP_DIR}"
+          tar -xzf "${DEBUG_TARBALL_PATH}" -C "${DEBUG_TMP_DIR}"
 
-          TMP_DIR="$(mktemp -d)"
-          tar -xzf "${TARBALL_PATH}" -C "${TMP_DIR}"
-          PACKAGE_DIR="${TMP_DIR}/package"
-          if [ ! -f "${PACKAGE_DIR}/package.json" ]; then
-            echo "Invalid package tarball: package.json missing in package/."
+          CORE_PACKAGE_DIR="${CORE_TMP_DIR}/package"
+          DEBUG_PACKAGE_DIR="${DEBUG_TMP_DIR}/package"
+
+          if [ ! -f "${CORE_PACKAGE_DIR}/package.json" ]; then
+            echo "Invalid core tarball: package.json missing in package/."
+            exit 1
+          fi
+
+          if [ ! -f "${DEBUG_PACKAGE_DIR}/package.json" ]; then
+            echo "Invalid debugger tarball: package.json missing in package/."
             exit 1
           fi
 
@@ -159,7 +192,11 @@ jobs:
             git rm -rf --ignore-unmatch . || true
             git clean -fdx
 
-            rsync -a "${PACKAGE_DIR}/" ./
+            mkdir -p interpreter
+            mkdir -p debugger/vscode
+
+            rsync -a "${CORE_PACKAGE_DIR}/" interpreter/
+            rsync -a "${DEBUG_PACKAGE_DIR}/" debugger/vscode/
             git add -A
 
             if git diff --cached --quiet; then
@@ -170,8 +207,8 @@ jobs:
             fi
           }
 
-          publish_branch "${BRANCH_MAJOR}"
-          publish_branch "${BRANCH_MINOR}"
+          publish_branch "${BRANCH_PREFIX}/v${MAJOR}"
+          publish_branch "${BRANCH_PREFIX}/v${MAJOR}.${MINOR}"
 
       - name: Create or update GitHub release
         env:
@@ -184,16 +221,16 @@ jobs:
             gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
               -f name="${RELEASE_NAME}" \
               -F prerelease="${RELEASE_PRERELEASE}" >/dev/null
-            gh release upload "${TAG}" "${TARBALL_PATH}" --clobber
+            gh release upload "${TAG}" "${CORE_TARBALL_PATH}" "${DEBUG_TARBALL_PATH}" --clobber
           else
             if [ "${RELEASE_PRERELEASE}" = "true" ]; then
-              gh release create "${TAG}" "${TARBALL_PATH}" \
+              gh release create "${TAG}" "${CORE_TARBALL_PATH}" "${DEBUG_TARBALL_PATH}" \
                 --target "${TAG_SHA}" \
                 --title "${RELEASE_NAME}" \
                 --notes "Automated UPM release for ${TAG}." \
                 --prerelease
             else
-              gh release create "${TAG}" "${TARBALL_PATH}" \
+              gh release create "${TAG}" "${CORE_TARBALL_PATH}" "${DEBUG_TARBALL_PATH}" \
                 --target "${TAG_SHA}" \
                 --title "${RELEASE_NAME}" \
                 --notes "Automated UPM release for ${TAG}."
