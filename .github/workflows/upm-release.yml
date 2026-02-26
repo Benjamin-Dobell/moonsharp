@@ -86,6 +86,7 @@ jobs:
               --jq ".artifacts[] | select(.name == \"${CORE_ARTIFACT_NAME}\" and .expired == false) | .id" | head -n1 || true)"
             CANDIDATE_DEBUG_ARTIFACT_ID="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${CANDIDATE_RUN_ID}/artifacts" \
               --jq ".artifacts[] | select(.name == \"${DEBUG_ARTIFACT_NAME}\" and .expired == false) | .id" | head -n1 || true)"
+
             if [ -n "${CANDIDATE_CORE_ARTIFACT_ID}" ] && [ -n "${CANDIDATE_DEBUG_ARTIFACT_ID}" ]; then
               RUN_ID="${CANDIDATE_RUN_ID}"
               CORE_ARTIFACT_ID="${CANDIDATE_CORE_ARTIFACT_ID}"

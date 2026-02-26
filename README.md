@@ -1,4 +1,4 @@
-MoonSharp       [![CI](https://github.com/Benjamin-Dobell/moonsharp/actions/workflows/ci.yml/badge.svg)](https://github.com/Benjamin-Dobell/moonsharp/actions/workflows/ci.yml) [![Build Status](https://img.shields.io/nuget/v/MoonSharp.svg)](https://www.nuget.org/packages/MoonSharp/)
+MoonSharp       [![CI](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml) [![Build Status](https://img.shields.io/nuget/v/MoonSharp.svg)](https://www.nuget.org/packages/MoonSharp/)
 =========
 http://www.moonsharp.org   
 
@@ -49,16 +49,19 @@ This produces a tarball like:
 
 ### Install in Unity
 
-Install from version branch
+Install from version branch:
+
 1. In your Unity project's `Packages/manifest.json`, add:
-   `"org.moonsharp.moonsharp": "https://github.com/Benjamin-Dobell/moonsharp.git#upm/v3"`
-2. For minor-track pinning, use branches like:
-   `upm/v3.2`
+   `"org.moonsharp.moonsharp": "https://github.com/moonsharp-devs/moonsharp.git?path=/interpreter#upm/v3.0"`
+2. If you just want to pin to a major version (3 instead 3.0), use branches like:
+   `upm/v3`
+3. The VSCode debugger is a separate package and can be added with:
+   `"org.moonsharp.debugger.vscode": "https://github.com/moonsharp-devs/moonsharp.git?path=/debugger/vscode#upm/v3.0"`
 
-Release automation publishes package-only branches:
-- `upm/v<major>` (for example `upm/v3`)
-- `upm/v<major>.<minor>` (for example `upm/v3.0`)
-
+<blockquote>
+<p>[!NOTE]
+Beta branches are available with names like `upm/beta/v3.0`
+</p></blockquote>
 
 **License**
 
