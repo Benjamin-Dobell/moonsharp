@@ -9,6 +9,6 @@
   },
   "license": "MIT",
   "dependencies": {
-    "org.moonsharp.moonsharp": "0.0.0-ci.23"
+    "org.moonsharp.moonsharp": "3.0.0-beta.4"
   }
 }
