@@ -196,6 +196,10 @@ namespace MoonSharp.VsCodeDebugger.DebuggerLogic
 					return false;
 				}
 
+				AsyncDebugger previousDebugger = state.Debugger;
+				bool wasStopped = previousDebugger?.IsStopped ?? false;
+				int previousStopReason = state.StopReason;
+
 				state.Debugger?.Script?.DetachDebugger();
 				state.Debugger.Client = null;
 				m_ThreadIdByScript.Remove(previousScript);
@@ -221,7 +225,7 @@ namespace MoonSharp.VsCodeDebugger.DebuggerLogic
 				state.Debugger = debugger;
 				state.Name = debugger.Name;
 				state.RuntimeException = null;
-				state.StopReason = STOP_REASON_PAUSED;
+				state.StopReason = wasStopped ? previousStopReason : STOP_REASON_BREAKPOINT;
 				state.PendingStackFrame = -1;
 				state.CurrentStackFrame = -1;
 				state.CurrentCallStack.Clear();
@@ -231,10 +235,19 @@ namespace MoonSharp.VsCodeDebugger.DebuggerLogic
 				m_ThreadIdByScript[debugger.Script] = threadId;
 
 				debugger.Script.AttachDebugger(debugger);
+				ReapplyPersistedBreakpoints(state);
 				if (ClientConnected)
 				{
-					debugger.PauseRequested = true;
 					debugger.Client = state.ClientProxy;
+
+					if (wasStopped)
+					{
+						debugger.PauseRequested = true;
+					}
+					else
+					{
+						debugger.QueueAction(new DebuggerAction { Action = DebuggerAction.ActionType.Run });
+					}
 				}
 
 				return true;
@@ -805,6 +818,7 @@ namespace MoonSharp.VsCodeDebugger.DebuggerLogic
 			}
 
 			Table requestedBreakpoints = args.Get("breakpoints").Table ?? new Table(null);
+			var requestedBreakpointConditions = new Dictionary<int, string>();
 			var pendingBreakpoints = new Dictionary<int, DynamicExpression>();
 			var breakpointFailures = new Dictionary<int, Breakpoint>();
 
@@ -813,12 +827,15 @@ namespace MoonSharp.VsCodeDebugger.DebuggerLogic
 				Table breakpointTable = requestedBreakpoint.ToObject<Table>();
 				int line = breakpointTable.Get("line").ToObject<int>();
 				DynValue condition = breakpointTable.Get("condition");
+				string conditionText = condition.IsNil() ? null : condition.ToObject<string>();
+
+				requestedBreakpointConditions[line] = conditionText;
 
 				try
 				{
 					DynamicExpression conditionExpression = condition.IsNil()
 						? null
-						: source.OwnerScript.CreateDynamicExpression(condition.ToObject<string>());
+						: source.OwnerScript.CreateDynamicExpression(conditionText);
 					pendingBreakpoints.Add(line, conditionExpression);
 				}
 				catch (Exception)
@@ -826,6 +843,8 @@ namespace MoonSharp.VsCodeDebugger.DebuggerLogic
 					breakpointFailures[line] = new Breakpoint("Invalid breakpoint expression");
 				}
 			}
+
+			PersistBreakpointsForSource(state, source, requestedBreakpointConditions);
 
 			Dictionary<int, DynamicExpression> confirmedBreakpoints = state.Debugger.DebugService.ResetBreakPoints(source, pendingBreakpoints);
 			var breakpointResults = new List<Breakpoint>();
@@ -1099,6 +1118,62 @@ namespace MoonSharp.VsCodeDebugger.DebuggerLogic
 			SendEvent(new OutputEvent("console", string.Format(msg, args) + "\n"));
 		}
 
+		static string BuildSourceBreakpointKey(ThreadState state, SourceCode source)
+		{
+			string sourceName = state.Debugger.GetSourceFile(source.SourceID) ?? source.Name;
+			return string.IsNullOrEmpty(sourceName) ? null : sourceName.Replace('\\', '/').ToUpperInvariant();
+		}
+
+		static void PersistBreakpointsForSource(ThreadState state, SourceCode source, Dictionary<int, string> requestedBreakpointConditions)
+		{
+			string key = BuildSourceBreakpointKey(state, source);
+
+			if (string.IsNullOrEmpty(key))
+			{
+				return;
+			}
+
+			if (requestedBreakpointConditions.Count == 0)
+			{
+				state.BreakpointConditionsBySource.Remove(key);
+				return;
+			}
+
+			state.BreakpointConditionsBySource[key] = new Dictionary<int, string>(requestedBreakpointConditions);
+		}
+
+		void ReapplyPersistedBreakpoints(ThreadState state)
+		{
+			foreach (var entry in state.BreakpointConditionsBySource)
+			{
+				SourceCode source = state.Debugger.FindSourceByName(entry.Key);
+				
+				if (source == null)
+				{
+					continue;
+				}
+
+				var pendingBreakpoints = new Dictionary<int, DynamicExpression>();
+
+				foreach (var breakpoint in entry.Value)
+				{
+					try
+					{
+						DynamicExpression conditionExpression = string.IsNullOrEmpty(breakpoint.Value)
+							? null
+							: source.OwnerScript.CreateDynamicExpression(breakpoint.Value);
+						pendingBreakpoints[breakpoint.Key] = conditionExpression;
+					}
+					catch
+					{
+						// Ignore invalid conditions; SetBreakpoints already reported these at entry time.
+					}
+				}
+
+				state.Debugger.DebugService.ResetBreakPoints(source, pendingBreakpoints);
+			}
+		}
+
 		bool TryGetThreadState(Table args, out ThreadState state)
 		{
 			int threadId = getInt(args, "threadId", 0);
@@ -1313,6 +1388,7 @@ namespace MoonSharp.VsCodeDebugger.DebuggerLogic
 			public ScriptRuntimeException RuntimeException { get; set; }
 			public int VariableGeneration { get; set; } = 1;
 			public HashSet<int> ActiveVariableReferenceIds { get; } = new HashSet<int>();
+			public Dictionary<string, Dictionary<int, string>> BreakpointConditionsBySource { get; } = new Dictionary<string, Dictionary<int, string>>();
 
 			public ThreadState(int threadId, AsyncDebugger debugger, DebuggerClientProxy clientProxy)
 			{
